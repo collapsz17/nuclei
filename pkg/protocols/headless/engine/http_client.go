@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"strings"
 	"time"
 
 	"golang.org/x/net/proxy"
@@ -20,6 +21,9 @@ import (
 
 // newHttpClient creates a new http client for headless communication with a timeout
 func newHttpClient(options *types.Options) (*http.Client, error) {
+	if mode := strings.TrimSpace(strings.ToLower(options.TLSMode)); mode != "" && mode != "auto" {
+		return nil, fmt.Errorf("headless mode does not support tls-mode=%s", options.TLSMode)
+	}
 	dialers := protocolstate.GetDialersWithId(options.ExecutionId)
 	if dialers == nil {
 		return nil, fmt.Errorf("dialers not initialized for %s", options.ExecutionId)

@@ -17,7 +17,6 @@ import (
 	"golang.org/x/net/proxy"
 	"golang.org/x/net/publicsuffix"
 
-	"github.com/projectdiscovery/fastdialer/fastdialer/ja3/impersonate"
 	"github.com/projectdiscovery/nuclei/v3/pkg/protocols"
 	"github.com/projectdiscovery/nuclei/v3/pkg/protocols/common/protocolstate"
 	"github.com/projectdiscovery/nuclei/v3/pkg/protocols/utils"
@@ -169,6 +168,9 @@ func GetRawHTTP(options *protocols.ExecutorOptions) *rawhttp.Client {
 
 // Get creates or gets a client for the protocol based on custom configuration
 func Get(options *types.Options, configuration *Configuration) (*retryablehttp.Client, error) {
+	if err := validateTLSMode(options); err != nil {
+		return nil, err
+	}
 	if configuration.HasStandardOptions() {
 		dialers := protocolstate.GetDialersWithId(options.ExecutionId)
 		if dialers == nil {
@@ -187,6 +189,9 @@ func wrappedGet(options *types.Options, configuration *Configuration) (*retryabl
 	dialers := protocolstate.GetDialersWithId(options.ExecutionId)
 	if dialers == nil {
 		return nil, fmt.Errorf("dialers not initialized for %s", options.ExecutionId)
+	}
+	if normalizedTLSMode(options) == tlsModeSSLv3 && options.AliveSocksProxy != "" {
+		return nil, fmt.Errorf("tls-mode=sslv3 does not support socks proxy transport")
 	}
 
 	hash := configuration.Hash()
@@ -279,13 +284,7 @@ func wrappedGet(options *types.Options, configuration *Configuration) (*retryabl
 		ForceAttemptHTTP2: options.ForceAttemptHTTP2,
 		DialContext:       dialers.Fastdialer.Dial,
 		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			if options.TlsImpersonate {
-				return dialers.Fastdialer.DialTLSWithConfigImpersonate(ctx, network, addr, tlsConfig, impersonate.Random, nil)
-			}
-			if options.HasClientCertificates() || options.ForceAttemptHTTP2 {
-				return dialers.Fastdialer.DialTLSWithConfig(ctx, network, addr, tlsConfig)
-			}
-			return dialers.Fastdialer.DialTLS(ctx, network, addr)
+			return dialTLSWithMode(ctx, dialers, options, network, addr, tlsConfig)
 		},
 		MaxIdleConns:          maxIdleConns,
 		MaxIdleConnsPerHost:   maxIdleConnsPerHost,
@@ -342,8 +341,16 @@ func wrappedGet(options *types.Options, configuration *Configuration) (*retryabl
 		}
 	}
 
+	roundTripper := http.RoundTripper(transport)
+	if normalizedTLSMode(options) == tlsModeGOST {
+		roundTripper, err = newGOSTRoundTripper(options, transport, responseHeaderTimeout)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	httpclient := &http.Client{
-		Transport:     transport,
+		Transport:     roundTripper,
 		CheckRedirect: makeCheckRedirectFunc(redirectFlow, maxRedirects),
 	}
 	if !configuration.NoTimeout {

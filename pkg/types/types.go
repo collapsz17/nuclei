@@ -307,6 +307,12 @@ type Options struct {
 	DisableRedirects bool
 	// SNI custom hostname
 	SNI string
+	// TLSMode overrides the HTTP TLS transport mode (auto, sslv3, gost)
+	TLSMode string
+	// GOSTOpenSSLBinary is the OpenSSL binary to use for GOST HTTP requests
+	GOSTOpenSSLBinary string
+	// GOSTOpenSSLConfig is the OpenSSL config to use for GOST HTTP requests
+	GOSTOpenSSLConfig string
 	// InputFileMode specifies the mode of input file (jsonl, burp, openapi, swagger, etc)
 	InputFileMode string
 	// DialerKeepAlive sets the keep alive duration for network requests.
@@ -619,6 +625,9 @@ func (options *Options) Copy() *Options {
 		StoreResponseDir:               options.StoreResponseDir,
 		DisableRedirects:               options.DisableRedirects,
 		SNI:                            options.SNI,
+		TLSMode:                        options.TLSMode,
+		GOSTOpenSSLBinary:              options.GOSTOpenSSLBinary,
+		GOSTOpenSSLConfig:              options.GOSTOpenSSLConfig,
 		InputFileMode:                  options.InputFileMode,
 		DialerKeepAlive:                options.DialerKeepAlive,
 		Interface:                      options.Interface,
