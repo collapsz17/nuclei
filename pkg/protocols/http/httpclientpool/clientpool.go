@@ -171,15 +171,21 @@ func Get(options *types.Options, configuration *Configuration) (*retryablehttp.C
 	if err := validateTLSMode(options); err != nil {
 		return nil, err
 	}
-	if configuration.HasStandardOptions() {
+	if shouldUseSharedHTTPClient(options, configuration) {
 		dialers := protocolstate.GetDialersWithId(options.ExecutionId)
 		if dialers == nil {
 			return nil, fmt.Errorf("dialers not initialized for %s", options.ExecutionId)
 		}
-		return dialers.DefaultHTTPClient, nil
+		if dialers.DefaultHTTPClient != nil {
+			return dialers.DefaultHTTPClient, nil
+		}
 	}
 
 	return wrappedGet(options, configuration)
+}
+
+func shouldUseSharedHTTPClient(options *types.Options, configuration *Configuration) bool {
+	return configuration.HasStandardOptions() && normalizedTLSMode(options) == tlsModeAuto && !options.HasClientCertificates()
 }
 
 // wrappedGet wraps a get operation without normal client check
@@ -190,7 +196,8 @@ func wrappedGet(options *types.Options, configuration *Configuration) (*retryabl
 	if dialers == nil {
 		return nil, fmt.Errorf("dialers not initialized for %s", options.ExecutionId)
 	}
-	if normalizedTLSMode(options) == tlsModeSSLv3 && options.AliveSocksProxy != "" {
+	tlsMode := normalizedTLSMode(options)
+	if tlsMode == tlsModeSSLv3 && options.AliveSocksProxy != "" {
 		return nil, fmt.Errorf("tls-mode=sslv3 does not support socks proxy transport")
 	}
 
@@ -261,9 +268,11 @@ func wrappedGet(options *types.Options, configuration *Configuration) (*retryabl
 	}
 
 	// Add the client certificate authentication to the request if it's configured
-	tlsConfig, err = utils.AddConfiguredClientCertToRequest(tlsConfig, options)
-	if err != nil {
-		return nil, errors.Wrap(err, "could not create client certificate")
+	if tlsMode != tlsModeGOST {
+		tlsConfig, err = utils.AddConfiguredClientCertToRequest(tlsConfig, options)
+		if err != nil {
+			return nil, errors.Wrap(err, "could not create client certificate")
+		}
 	}
 
 	// responseHeaderTimeout is max timeout for response headers to be read
@@ -342,7 +351,7 @@ func wrappedGet(options *types.Options, configuration *Configuration) (*retryabl
 	}
 
 	roundTripper := http.RoundTripper(transport)
-	if normalizedTLSMode(options) == tlsModeGOST {
+	if tlsMode == tlsModeGOST {
 		roundTripper, err = newGOSTRoundTripper(options, transport, responseHeaderTimeout)
 		if err != nil {
 			return nil, err

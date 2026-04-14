@@ -26,6 +26,7 @@ import (
 	"github.com/projectdiscovery/nuclei/v3/pkg/protocols/http/httpclientpool"
 	"github.com/projectdiscovery/nuclei/v3/pkg/protocols/network/networkclientpool"
 	httputil "github.com/projectdiscovery/nuclei/v3/pkg/protocols/utils/http"
+	"github.com/projectdiscovery/nuclei/v3/pkg/types"
 	"github.com/projectdiscovery/nuclei/v3/pkg/utils/stats"
 	"github.com/projectdiscovery/rawhttp"
 	"github.com/projectdiscovery/retryablehttp-go"
@@ -304,6 +305,9 @@ func (request *Request) Compile(options *protocols.ExecutorOptions) error {
 	if err := request.validate(); err != nil {
 		return errors.Wrap(err, "validation error")
 	}
+	if err := request.validateTransportCompatibility(options.Options); err != nil {
+		return err
+	}
 
 	connectionConfiguration := &httpclientpool.Configuration{
 		Threads:       request.Threads,
@@ -513,6 +517,19 @@ func (request *Request) Compile(options *protocols.ExecutorOptions) error {
 			}
 			request.Threads = options.GetThreadsForNPayloadRequests(request.Requests(), request.Threads)
 		}
+	}
+	return nil
+}
+
+func (request *Request) validateTransportCompatibility(options *types.Options) error {
+	if !strings.EqualFold(strings.TrimSpace(options.TLSMode), "gost") {
+		return nil
+	}
+	if request.Unsafe {
+		return errors.New("tls-mode=gost does not support unsafe HTTP requests")
+	}
+	if request.Pipeline {
+		return errors.New("tls-mode=gost does not support HTTP pipelining")
 	}
 	return nil
 }

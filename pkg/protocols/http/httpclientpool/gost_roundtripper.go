@@ -33,9 +33,6 @@ func newGOSTRoundTripper(options *types.Options, fallback http.RoundTripper, tim
 	if options.TlsImpersonate {
 		return nil, fmt.Errorf("tls-mode=gost does not support tls impersonation")
 	}
-	if options.HasClientCertificates() {
-		return nil, fmt.Errorf("tls-mode=gost does not support client certificates yet")
-	}
 	return &gostRoundTripper{
 		fallback: fallback,
 		options:  options,
@@ -60,7 +57,7 @@ func (g *gostRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 		serverName = req.URL.Hostname()
 	}
 
-	args := buildGOSTOpenSSLArgs(address, serverName)
+	args := buildGOSTOpenSSLArgs(address, serverName, g.options)
 	cmdCtx, cancel := context.WithTimeout(req.Context(), g.timeout)
 	cmd := exec.CommandContext(cmdCtx, g.gostOpenSSLBinary(), args...)
 	cmd.Env = g.commandEnv()
@@ -137,7 +134,7 @@ func (g *gostRoundTripper) commandEnv() []string {
 	return env
 }
 
-func buildGOSTOpenSSLArgs(address, serverName string) []string {
+func buildGOSTOpenSSLArgs(address, serverName string, options *types.Options) []string {
 	args := []string{
 		"s_client",
 		"-quiet",
@@ -149,6 +146,15 @@ func buildGOSTOpenSSLArgs(address, serverName string) []string {
 	}
 	if serverName != "" {
 		args = append(args, "-servername", serverName)
+	}
+	if options != nil && options.HasClientCertificates() {
+		args = append(args,
+			"-cert", options.ClientCertFile,
+			"-key", options.ClientKeyFile,
+		)
+		if strings.TrimSpace(options.ClientCAFile) != "" {
+			args = append(args, "-CAfile", options.ClientCAFile)
+		}
 	}
 	return args
 }
